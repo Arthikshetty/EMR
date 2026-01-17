@@ -1,7 +1,6 @@
 """
-Train Best OCR Model - ResNet50 Transfer Learning
-Separate models for Prescriptions and Lab Reports
-Generates test predictions with text files
+Train Full-Text OCR Model - Generate Complete Text from Images
+Sequence-to-Sequence based model for prescription and lab report text recognition
 """
 
 import os
@@ -12,28 +11,38 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import numpy as np
-from datetime import datetime
 
 
 class OCRDataset(Dataset):
-    """Load dataset from split folders"""
+    """Load dataset with full text content"""
     
     def __init__(self, data_path, doc_type, split='train'):
         self.image_dir = f"{data_path}/{doc_type}/{split}"
         self.samples = []
+        self.vocab = set()
         
         if os.path.exists(self.image_dir):
-            for f in os.listdir(self.image_dir):
+            for f in sorted(os.listdir(self.image_dir)):
                 if f.lower().endswith(('.jpg', '.jpeg', '.png')):
                     img_path = os.path.join(self.image_dir, f)
                     txt_name = f.rsplit('.', 1)[0] + '.txt'
                     txt_path = os.path.join(self.image_dir, txt_name)
                     
                     if os.path.exists(txt_path):
-                        with open(txt_path, 'r', encoding='utf-8') as file:
-                            text = file.read().strip()
-                        if text:
-                            self.samples.append((img_path, text))
+                        try:
+                            with open(txt_path, 'r', encoding='utf-8', errors='ignore') as file:
+                                text = file.read().strip()
+                            if text:
+                                self.samples.append((img_path, text))
+                                self.vocab.update(text)
+                        except:
+                            pass
+        
+        # Build vocabulary
+        self.vocab = sorted(list(self.vocab))
+        self.char2idx = {c: i for i, c in enumerate(self.vocab)}
+        self.idx2char = {i: c for i, c in enumerate(self.vocab)}
+        self.vocab_size = len(self.vocab)
     
     def __len__(self):
         return len(self.samples)
@@ -46,19 +55,19 @@ class OCRDataset(Dataset):
             image = image.resize((256, 64))
             image = torch.FloatTensor(np.array(image)) / 255.0
             
-            # Convert text to class indices (0-255 ASCII)
-            text_indices = torch.tensor([min(ord(c), 255) for c in text[:100].ljust(100, ' ')])
+            # Convert text to indices
+            text_indices = torch.tensor([self.char2idx.get(c, 0) for c in text[:500]])
             
-            return image, text_indices, os.path.basename(img_path)
+            return image, text_indices, text
         except:
             return None, None, None
 
 
-class OCRModel(nn.Module):
-    """ResNet50-based OCR Model"""
+class TextEncoder(nn.Module):
+    """Encode image to text features"""
     
     def __init__(self):
-        super(OCRModel, self).__init__()
+        super(TextEncoder, self).__init__()
         
         from torchvision import models
         resnet50 = models.resnet50(pretrained=True)
@@ -66,60 +75,107 @@ class OCRModel(nn.Module):
         
         self.backbone = nn.Sequential(*list(resnet50.children())[:-1])
         
-        self.head = nn.Sequential(
+        self.fc = nn.Sequential(
             nn.Linear(2048, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-            nn.Dropout(0.4),
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(256, 256)
+            nn.Linear(512, 256)
         )
     
     def forward(self, x):
         x = self.backbone(x)
         x = x.view(x.size(0), -1)
-        x = self.head(x)
+        x = self.fc(x)
         return x
 
 
-def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=16):
-    """Train OCR model for document type"""
+class TextDecoder(nn.Module):
+    """Decode text from image features"""
+    
+    def __init__(self, vocab_size, hidden_size=256):
+        super(TextDecoder, self).__init__()
+        
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        
+        self.embedding = nn.Embedding(vocab_size, 128)
+        self.lstm = nn.LSTM(128 + 256, hidden_size, num_layers=2, batch_first=True, dropout=0.3)
+        self.fc = nn.Linear(hidden_size, vocab_size)
+    
+    def forward(self, encoder_output, text_indices):
+        batch_size = encoder_output.size(0)
+        
+        # Expand encoder output to sequence length
+        encoder_output = encoder_output.unsqueeze(1).expand(-1, text_indices.size(1), -1)
+        
+        # Embed text indices
+        text_embed = self.embedding(text_indices)
+        
+        # Concatenate encoder output and embedded text
+        decoder_input = torch.cat([text_embed, encoder_output], dim=2)
+        
+        # LSTM
+        lstm_output, _ = self.lstm(decoder_input)
+        
+        # Predict characters
+        output = self.fc(lstm_output)
+        
+        return output
+
+
+class FullTextOCRModel(nn.Module):
+    """Full text OCR model"""
+    
+    def __init__(self, vocab_size):
+        super(FullTextOCRModel, self).__init__()
+        self.encoder = TextEncoder()
+        self.decoder = TextDecoder(vocab_size)
+    
+    def forward(self, images, text_indices):
+        encoder_output = self.encoder(images)
+        output = self.decoder(encoder_output, text_indices)
+        return output
+
+
+def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=8):
+    """Train full-text OCR model"""
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"\n{'='*70}")
-    print(f"Training {doc_type.upper()} OCR Model")
+    print(f"Training Full-Text OCR Model - {doc_type.upper()}")
     print(f"{'='*70}")
     print(f"Device: {device}\n")
     
     # Load datasets
     train_dataset = OCRDataset(data_path, doc_type, 'train')
     val_dataset = OCRDataset(data_path, doc_type, 'validation')
-    test_dataset = OCRDataset(data_path, doc_type, 'test')
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size)
+    print(f"Vocabulary size: {train_dataset.vocab_size}")
+    print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)}\n")
     
-    print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_dataset)}\n")
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, drop_last=True)
     
     # Model
-    model = OCRModel().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    model = FullTextOCRModel(train_dataset.vocab_size).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=0.0005)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
     criterion = nn.CrossEntropyLoss()
     
-    history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
+    history = {'train_loss': [], 'val_loss': []}
     best_val_loss = float('inf')
     patience_counter = 0
+    
+    print(f"{'='*70}")
+    print("TRAINING")
+    print(f"{'='*70}\n")
     
     # Training
     for epoch in range(epochs):
         # Train
         model.train()
         train_loss = 0
+        
         for batch_idx, (images, texts, _) in enumerate(train_loader):
             if images is None:
                 continue
@@ -128,10 +184,14 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=16):
             texts = texts.to(device)
             
             optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, texts[:, 0])  # Use first char for simplicity
+            outputs = model(images, texts)
+            
+            # Reshape for loss calculation
+            loss = criterion(outputs.reshape(-1, train_dataset.vocab_size), texts.reshape(-1))
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            
             train_loss += loss.item()
         
         avg_train_loss = train_loss / len(train_loader)
@@ -139,28 +199,25 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=16):
         # Validate
         model.eval()
         val_loss = 0
-        val_acc = 0
+        
         with torch.no_grad():
             for images, texts, _ in val_loader:
                 if images is None:
                     continue
+                
                 images = images.unsqueeze(1).to(device)
                 texts = texts.to(device)
                 
-                outputs = model(images)
-                loss = criterion(outputs, texts[:, 0])
+                outputs = model(images, texts)
+                loss = criterion(outputs.reshape(-1, train_dataset.vocab_size), texts.reshape(-1))
                 val_loss += loss.item()
-                
-                val_acc += (outputs.argmax(1) == texts[:, 0]).float().mean().item()
         
         avg_val_loss = val_loss / len(val_loader)
-        avg_val_acc = val_acc / len(val_loader) * 100
         
         history['train_loss'].append(avg_train_loss)
         history['val_loss'].append(avg_val_loss)
-        history['val_acc'].append(avg_val_acc)
         
-        print(f"Epoch {epoch+1:2d}: Train Loss={avg_train_loss:.4f} | Val Loss={avg_val_loss:.4f} | Val Acc={avg_val_acc:.1f}%")
+        print(f"Epoch {epoch+1:2d}/{epochs}: Train Loss={avg_train_loss:.4f} | Val Loss={avg_val_loss:.4f}")
         
         # Early stopping
         if avg_val_loss < best_val_loss:
@@ -170,7 +227,7 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=16):
         else:
             patience_counter += 1
             if patience_counter >= 5:
-                print(f"Early stopping at epoch {epoch+1}")
+                print(f"Early stopping at epoch {epoch+1}\n")
                 break
         
         scheduler.step()
@@ -178,49 +235,24 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=16):
     # Save final model
     torch.save(model.state_dict(), f"{output_dir}/{doc_type}_model.pt")
     
-    # Generate test predictions with text files
-    print(f"\nGenerating test predictions for {doc_type}...")
-    model.load_state_dict(torch.load(f"{output_dir}/{doc_type}_best_model.pt", map_location=device))
-    model.eval()
-    
-    test_output_dir = f"{output_dir}/{doc_type}_predictions"
-    os.makedirs(test_output_dir, exist_ok=True)
-    
-    predictions = []
-    with torch.no_grad():
-        for images, texts, names in test_loader:
-            if images is None:
-                continue
-            
-            images = images.unsqueeze(1).to(device)
-            outputs = model(images)
-            preds = outputs.argmax(1).cpu().numpy()
-            
-            for pred, name, actual_text in zip(preds, names, texts):
-                pred_text = chr(pred)
-                
-                # Save prediction as text file
-                pred_file = name.rsplit('.', 1)[0] + '_pred.txt'
-                with open(os.path.join(test_output_dir, pred_file), 'w') as f:
-                    f.write(pred_text)
-                
-                predictions.append({
-                    'image': name,
-                    'predicted_char': pred_text,
-                    'actual_char': chr(actual_text[0].item())
-                })
-    
-    # Save predictions
-    with open(f"{output_dir}/{doc_type}_predictions.json", 'w') as f:
-        json.dump(predictions, f, indent=2)
-    
     # Save history
     with open(f"{output_dir}/{doc_type}_history.json", 'w') as f:
         json.dump(history, f, indent=2)
     
-    print(f"✓ {doc_type} predictions saved to {test_output_dir}\n")
+    # Save vocabulary
+    vocab_data = {
+        'char2idx': train_dataset.char2idx,
+        'idx2char': {str(k): v for k, v in train_dataset.idx2char.items()},
+        'vocab_size': train_dataset.vocab_size
+    }
+    with open(f"{output_dir}/{doc_type}_vocab.json", 'w') as f:
+        json.dump(vocab_data, f, indent=2)
     
-    return model, history
+    print(f"\n{'='*70}")
+    print(f"✓ TRAINING COMPLETE - {doc_type.upper()}")
+    print(f"{'='*70}\n")
+    
+    return model, train_dataset, history
 
 
 if __name__ == "__main__":
@@ -234,17 +266,16 @@ if __name__ == "__main__":
     
     os.makedirs(output_dir, exist_ok=True)
     
-    # Train both models
     print(f"\n{'='*70}")
-    print("TRAINING OCR MODELS")
+    print("FULL-TEXT OCR MODEL TRAINING")
     print(f"{'='*70}")
     
-    train_ocr_model(data_path, 'prescriptions', output_dir, epochs=20)
-    train_ocr_model(data_path, 'lab_reports', output_dir, epochs=20)
+    # Train prescriptions
+    prescr_model, prescr_dataset, prescr_history = train_ocr_model(data_path, 'prescriptions', output_dir, epochs=20)
+    
+    # Train lab reports
+    lab_model, lab_dataset, lab_history = train_ocr_model(data_path, 'lab_reports', output_dir, epochs=20)
     
     print(f"\n{'='*70}")
     print("✓ ALL MODELS TRAINED!")
-    print(f"{'='*70}")
-    print(f"Models saved to: {output_dir}")
-    print(f"Predictions saved to: {output_dir}/prescriptions_predictions/")
-    print(f"                      {output_dir}/lab_reports_predictions/\n")
+    print(f"{'='*70}\n")

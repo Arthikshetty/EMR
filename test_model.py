@@ -1,24 +1,24 @@
 """
-Test OCR Model - Generate predictions for test images
-Creates individual text files for each test image
+Test Full-Text OCR Model - Generate Complete Text Files for Each Test Image
+Output: For each test image, create a text file with predicted full text like 1.jpg → 1.txt
 """
 
 import os
 import json
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import numpy as np
-from datetime import datetime
 
 
 class OCRDataset(Dataset):
-    """Load dataset from split folders"""
+    """Load dataset with full text content"""
     
     def __init__(self, data_path, doc_type, split='test'):
         self.image_dir = f"{data_path}/{doc_type}/{split}"
         self.samples = []
+        self.vocab = set()
         
         if os.path.exists(self.image_dir):
             for f in sorted(os.listdir(self.image_dir)):
@@ -28,10 +28,19 @@ class OCRDataset(Dataset):
                     txt_path = os.path.join(self.image_dir, txt_name)
                     
                     if os.path.exists(txt_path):
-                        with open(txt_path, 'r', encoding='utf-8') as file:
-                            text = file.read().strip()
-                        if text:
-                            self.samples.append((img_path, text, f))
+                        try:
+                            with open(txt_path, 'r', encoding='utf-8', errors='ignore') as file:
+                                text = file.read().strip()
+                            if text:
+                                self.samples.append((img_path, text, f))
+                                self.vocab.update(text)
+                        except:
+                            pass
+        
+        self.vocab = sorted(list(self.vocab))
+        self.char2idx = {c: i for i, c in enumerate(self.vocab)}
+        self.idx2char = {i: c for i, c in enumerate(self.vocab)}
+        self.vocab_size = len(self.vocab)
     
     def __len__(self):
         return len(self.samples)
@@ -44,19 +53,16 @@ class OCRDataset(Dataset):
             image = image.resize((256, 64))
             image = torch.FloatTensor(np.array(image)) / 255.0
             
-            # Convert text to class indices (0-255 ASCII)
-            text_indices = torch.tensor([min(ord(c), 255) for c in text[:100].ljust(100, ' ')])
+            text_indices = torch.tensor([self.char2idx.get(c, 0) for c in text[:500]])
             
-            return image, text_indices, filename, text
+            return image, text_indices, text, filename
         except:
             return None, None, None, None
 
 
-class OCRModel(nn.Module):
-    """ResNet50-based OCR Model"""
-    
+class TextEncoder(nn.Module):
     def __init__(self):
-        super(OCRModel, self).__init__()
+        super(TextEncoder, self).__init__()
         
         from torchvision import models
         resnet50 = models.resnet50(pretrained=True)
@@ -64,110 +70,137 @@ class OCRModel(nn.Module):
         
         self.backbone = nn.Sequential(*list(resnet50.children())[:-1])
         
-        self.head = nn.Sequential(
+        self.fc = nn.Sequential(
             nn.Linear(2048, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-            nn.Dropout(0.4),
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(256, 256)
+            nn.Linear(512, 256)
         )
     
     def forward(self, x):
         x = self.backbone(x)
         x = x.view(x.size(0), -1)
-        x = self.head(x)
+        x = self.fc(x)
         return x
 
 
-def test_ocr_model(data_path, model_path, doc_type, output_dir):
-    """Test model and generate predictions for each test image"""
+class TextDecoder(nn.Module):
+    def __init__(self, vocab_size, hidden_size=256):
+        super(TextDecoder, self).__init__()
+        
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(vocab_size, 128)
+        self.lstm = nn.LSTM(128 + 256, hidden_size, num_layers=2, batch_first=True, dropout=0.3)
+        self.fc = nn.Linear(hidden_size, vocab_size)
+    
+    def forward(self, encoder_output, text_indices):
+        encoder_output = encoder_output.unsqueeze(1).expand(-1, text_indices.size(1), -1)
+        text_embed = self.embedding(text_indices)
+        decoder_input = torch.cat([text_embed, encoder_output], dim=2)
+        lstm_output, _ = self.lstm(decoder_input)
+        output = self.fc(lstm_output)
+        return output
+
+
+class FullTextOCRModel(nn.Module):
+    def __init__(self, vocab_size):
+        super(FullTextOCRModel, self).__init__()
+        self.encoder = TextEncoder()
+        self.decoder = TextDecoder(vocab_size)
+    
+    def forward(self, images, text_indices):
+        encoder_output = self.encoder(images)
+        output = self.decoder(encoder_output, text_indices)
+        return output
+
+
+def test_ocr_model(data_path, model_path, vocab_path, doc_type, output_dir):
+    """Test model and generate full text predictions for each image"""
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     print(f"\n{'='*70}")
-    print(f"TESTING {doc_type.upper()} MODEL")
+    print(f"TESTING {doc_type.upper()} MODEL - FULL TEXT GENERATION")
     print(f"{'='*70}")
     print(f"Device: {device}\n")
     
+    # Load dataset and vocabulary
+    test_dataset = OCRDataset(data_path, doc_type, 'test')
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+    
+    # Load vocabulary
+    with open(vocab_path, 'r') as f:
+        vocab_data = json.load(f)
+    idx2char = {int(k): v for k, v in vocab_data['idx2char'].items()}
+    
+    print(f"Test samples: {len(test_dataset)}\n")
+    
     # Load model
     print(f"Loading model: {model_path}")
-    model = OCRModel().to(device)
+    model = FullTextOCRModel(vocab_data['vocab_size']).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     print("✓ Model loaded\n")
     
-    # Load test dataset
-    print(f"Loading test dataset...")
-    test_dataset = OCRDataset(data_path, doc_type, 'test')
-    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
-    print(f"✓ Test samples: {len(test_dataset)}\n")
-    
-    # Create output directory for predictions
-    pred_dir = f"{output_dir}/{doc_type}_test_predictions"
+    # Create output directory for text predictions
+    pred_dir = f"{output_dir}/{doc_type}_predicted_text"
     os.makedirs(pred_dir, exist_ok=True)
     
-    # Test and generate predictions
-    print(f"Generating predictions for test images...\n")
+    print(f"Generating full text predictions...\n")
     
     all_results = []
-    correct_predictions = 0
     
     with torch.no_grad():
-        for batch_idx, (images, texts, filenames, actual_texts) in enumerate(test_loader):
+        for batch_idx, (images, texts, actual_texts, filenames) in enumerate(test_loader):
             if images is None:
                 continue
             
             images = images.unsqueeze(1).to(device)
-            texts = texts.to(device)
             
-            outputs = model(images)
-            predictions = outputs.argmax(1).cpu().numpy()
+            # Get predictions
+            outputs = model(images, texts)
+            predicted_indices = outputs.argmax(dim=2)
             
-            for pred_char, filename, actual_text in zip(predictions, filenames, actual_texts):
-                # Convert prediction to character
-                pred_char_ascii = chr(pred_char)
-                actual_char = actual_text[0] if actual_text else '?'
+            # Convert to text
+            for pred_indices, actual_text, filename in zip(predicted_indices, actual_texts, filenames):
+                # Convert indices to text
+                gen_text = ''.join([idx2char.get(int(idx.item()), '') for idx in pred_indices])
                 
-                # Check if prediction matches
-                is_correct = pred_char_ascii == actual_char
-                if is_correct:
-                    correct_predictions += 1
-                
-                # Save prediction to individual text file
-                pred_file = os.path.join(pred_dir, filename.rsplit('.', 1)[0] + '_prediction.txt')
+                # Save to text file (just like 1.jpg → 1.txt)
+                base_name = filename.rsplit('.', 1)[0]
+                pred_file = os.path.join(pred_dir, base_name + '.txt')
                 with open(pred_file, 'w', encoding='utf-8') as f:
-                    f.write(pred_char_ascii)
+                    f.write(gen_text)
+                
+                # Check if matches
+                is_correct = gen_text.strip() == actual_text.strip()
+                
+                print(f"  {filename:40s} → {base_name}.txt {'✓' if is_correct else '✗'}")
                 
                 # Store result
                 all_results.append({
-                    'filename': filename,
-                    'predicted_character': pred_char_ascii,
-                    'actual_character': actual_char,
+                    'input_image': filename,
+                    'output_text_file': pred_file,
+                    'generated_text': gen_text,
                     'actual_text': actual_text,
-                    'is_correct': is_correct,
-                    'prediction_file': pred_file
+                    'matches': is_correct
                 })
-                
-                print(f"  {filename:30s} → Predicted: '{pred_char_ascii}' | Actual: '{actual_char}' {'✓' if is_correct else '✗'}")
             
             print(f"Batch {batch_idx + 1}/{len(test_loader)}\n")
     
     # Calculate accuracy
-    accuracy = (correct_predictions / len(all_results)) * 100 if all_results else 0
+    correct = sum(1 for r in all_results if r['matches'])
+    accuracy = (correct / len(all_results)) * 100 if all_results else 0
     
-    # Save results summary
+    # Save summary
     summary = {
         'model_type': doc_type,
-        'timestamp': datetime.now().isoformat(),
         'total_test_samples': len(all_results),
-        'correct_predictions': correct_predictions,
+        'correct_predictions': correct,
         'accuracy': f"{accuracy:.2f}%",
-        'predictions_directory': pred_dir,
-        'model_path': model_path
+        'output_directory': pred_dir,
+        'model_path': model_path,
+        'description': 'Each image generates a text file with predicted content'
     }
     
     summary_file = f"{output_dir}/{doc_type}_test_summary.json"
@@ -185,12 +218,15 @@ def test_ocr_model(data_path, model_path, doc_type, output_dir):
     print("="*70)
     print(f"\n📊 RESULTS:")
     print(f"  Total Test Images: {len(all_results)}")
-    print(f"  Correct Predictions: {correct_predictions}")
+    print(f"  Correct Predictions: {correct}")
     print(f"  Accuracy: {accuracy:.2f}%")
-    print(f"\n📁 OUTPUT:")
-    print(f"  Predictions (TXT): {pred_dir}/")
-    print(f"  Summary (JSON): {summary_file}")
-    print(f"  Details (JSON): {results_file}\n")
+    print(f"\n📁 OUTPUT TEXT FILES:")
+    print(f"  Location: {pred_dir}/")
+    print(f"  Files: {len(all_results)} text files (one per image)")
+    print(f"  Format: image.jpg → image.txt (with predicted content)")
+    print(f"\n📄 REPORTS:")
+    print(f"  Summary: {summary_file}")
+    print(f"  Details: {results_file}\n")
     
     return summary, all_results
 
@@ -207,22 +243,26 @@ if __name__ == "__main__":
         output_dir = "ocr_models"
     
     print(f"\n{'='*70}")
-    print("OCR MODEL TESTING")
+    print("FULL-TEXT OCR MODEL TESTING")
     print(f"{'='*70}")
     
-    # Test prescriptions model
+    # Test prescriptions
     prescr_model_path = f"{model_dir}/prescriptions_best_model.pt"
-    if os.path.exists(prescr_model_path):
-        test_ocr_model(data_path, prescr_model_path, 'prescriptions', output_dir)
-    else:
-        print(f"✗ Prescription model not found: {prescr_model_path}")
+    prescr_vocab_path = f"{model_dir}/prescriptions_vocab.json"
     
-    # Test lab reports model
-    lab_model_path = f"{model_dir}/lab_reports_best_model.pt"
-    if os.path.exists(lab_model_path):
-        test_ocr_model(data_path, lab_model_path, 'lab_reports', output_dir)
+    if os.path.exists(prescr_model_path) and os.path.exists(prescr_vocab_path):
+        test_ocr_model(data_path, prescr_model_path, prescr_vocab_path, 'prescriptions', output_dir)
     else:
-        print(f"✗ Lab reports model not found: {lab_model_path}")
+        print(f"✗ Prescription model or vocab not found")
+    
+    # Test lab reports
+    lab_model_path = f"{model_dir}/lab_reports_best_model.pt"
+    lab_vocab_path = f"{model_dir}/lab_reports_vocab.json"
+    
+    if os.path.exists(lab_model_path) and os.path.exists(lab_vocab_path):
+        test_ocr_model(data_path, lab_model_path, lab_vocab_path, 'lab_reports', output_dir)
+    else:
+        print(f"✗ Lab reports model or vocab not found")
     
     print(f"\n{'='*70}")
     print("✓ ALL TESTS COMPLETED!")
