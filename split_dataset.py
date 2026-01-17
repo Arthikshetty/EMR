@@ -42,8 +42,11 @@ def split_dataset(data_folder="data", output_folder="split_data", train_ratio=0.
     prescr_input = f"{data_folder}/data1/Input"
     prescr_output = f"{data_folder}/data1/Output"
     
+    print(f"  Looking in: {prescr_input}")
+    print(f"  Looking in: {prescr_output}")
+    
     prescr_samples = []
-    if os.path.exists(prescr_input):
+    if os.path.exists(prescr_input) and os.path.exists(prescr_output):
         for img_file in sorted(os.listdir(prescr_input)):
             if img_file.lower().endswith(('.jpg', '.jpeg', '.png')):
                 img_path = os.path.join(prescr_input, img_file)
@@ -54,14 +57,22 @@ def split_dataset(data_folder="data", output_folder="split_data", train_ratio=0.
                     prescr_samples.append({'image': img_path, 'text': txt_path, 'name': img_file})
         
         print(f"✓ Found {len(prescr_samples)} prescription files\n")
+    else:
+        print(f"✗ ERROR: Prescription folders not found!")
+        print(f"  Input exists: {os.path.exists(prescr_input)}")
+        print(f"  Output exists: {os.path.exists(prescr_output)}")
+        print(f"\n  Please check your data_folder path and run check_colab_paths.py to diagnose\n")
     
     # Process Lab Reports (lbmaske)
     print("Processing LAB REPORTS (lbmaske)...")
     lab_input = f"{data_folder}/lbmaske/Input"
     lab_output = f"{data_folder}/lbmaske/Output"
     
+    print(f"  Looking in: {lab_input}")
+    print(f"  Looking in: {lab_output}")
+    
     lab_samples = []
-    if os.path.exists(lab_input):
+    if os.path.exists(lab_input) and os.path.exists(lab_output):
         for img_file in sorted(os.listdir(lab_input)):
             if img_file.lower().endswith(('.jpg', '.jpeg', '.png')):
                 img_path = os.path.join(lab_input, img_file)
@@ -72,6 +83,11 @@ def split_dataset(data_folder="data", output_folder="split_data", train_ratio=0.
                     lab_samples.append({'image': img_path, 'text': txt_path, 'name': img_file})
         
         print(f"✓ Found {len(lab_samples)} lab report files\n")
+    else:
+        print(f"✗ ERROR: Lab report folders not found!")
+        print(f"  Input exists: {os.path.exists(lab_input)}")
+        print(f"  Output exists: {os.path.exists(lab_output)}")
+        print(f"\n  Please check your data_folder path and run check_colab_paths.py to diagnose\n")
     
     # Split function
     def split_samples(samples, train_ratio, test_ratio, val_ratio):
@@ -85,6 +101,29 @@ def split_dataset(data_folder="data", output_folder="split_data", train_ratio=0.
             'test': samples[train_size:train_size + test_size],
             'validation': samples[train_size + test_size:]
         }
+    
+    # Check if we have data to process
+    if len(prescr_samples) == 0 and len(lab_samples) == 0:
+        print("\n" + "="*70)
+        print("✗ ERROR: NO DATA FOUND!")
+        print("="*70)
+        print("\nNo prescription or lab report files were found.")
+        print("\nTo fix this:")
+        print("1. In Colab, upload your data folder to Google Drive")
+        print("2. The structure should be:")
+        print("   MyDrive/")
+        print("   └── data/  (or your custom folder name)")
+        print("       ├── data1/")
+        print("       │   ├── Input/  (JPG images)")
+        print("       │   └── Output/ (TXT files)")
+        print("       └── lbmaske/")
+        print("           ├── Input/  (PNG images)")
+        print("           └── Output/ (TXT files)")
+        print("\n3. Run: !python check_colab_paths.py")
+        print("4. Find the correct path to your data")
+        print("5. Update the data_folder variable in split_dataset.py")
+        print("="*70 + "\n")
+        return None
     
     # Split prescriptions
     prescr_split = split_samples(prescr_samples, train_ratio, test_ratio, val_ratio)
@@ -149,6 +188,7 @@ if __name__ == "__main__":
         data_folder = "/content/drive/MyDrive/EMR_Data"
         output_folder = "/content/drive/MyDrive/split_data"
     except:
+        # Local machine path
         data_folder = "data"
         output_folder = "split_data"
     
