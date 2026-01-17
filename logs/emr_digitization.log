@@ -48,3 +48,44 @@ If this is a private repository, make sure to pass a token having permission to 
 2026-01-17 19:46:54,222 - src.security.encryption - INFO - Access Control initialized
 2026-01-17 19:46:54,223 - src.security.encryption - INFO - Audit log initialized: logs/audit_log.json
 2026-01-17 19:46:54,223 - src.pipeline - INFO - Security modules initialized
+2026-01-17 20:38:13,763 - pipeline - INFO - Initializing EMR Digitization Pipeline...
+2026-01-17 20:38:13,764 - src.ocr.ocr_wrapper - INFO - Initialized pytesseract OCR wrapper (Tesseract-OCR engine)
+2026-01-17 20:38:13,764 - src.ocr.ocr_wrapper - INFO - Note: Requires Tesseract-OCR to be installed on system
+2026-01-17 20:38:13,765 - pipeline - INFO - OCR model initialized
+2026-01-17 20:38:13,765 - src.post_ocr.text_correction - INFO - Medical dictionary loaded from config/medical_dictionary.json
+2026-01-17 20:38:13,765 - pipeline - INFO - Spell corrector initialized
+2026-01-17 20:38:13,766 - src.nlp.entity_extraction - INFO - Using device: cpu
+2026-01-17 20:38:14,576 - src.nlp.entity_extraction - WARNING - Could not load clinical NER model: DistilBERT-clinical-NER is not a local folder and is not a valid model identifier listed on 'https://huggingface.co/models'
+If this is a private repository, make sure to pass a token having permission to this repo either by logging in with `hf auth login` or by passing `token=<your_token>`. Using basic pattern matching.
+2026-01-17 20:38:14,577 - pipeline - INFO - NLP extractor initialized
+2026-01-17 20:38:14,577 - src.fhir.converter - INFO - Initialized FHIR Validator for R4
+2026-01-17 20:38:14,578 - src.fhir.converter - INFO - Initialized HL7 to FHIR Converter
+2026-01-17 20:38:14,578 - pipeline - INFO - FHIR converter initialized
+2026-01-17 20:38:14,579 - src.validation.human_validation - INFO - Human validator initialized. Output directory: validation_queue
+2026-01-17 20:38:14,579 - pipeline - INFO - Validation framework initialized
+2026-01-17 20:38:14,580 - src.security.encryption - INFO - Encryption initialized
+2026-01-17 20:38:14,580 - src.security.encryption - INFO - Access Control initialized
+2026-01-17 20:38:14,581 - src.security.encryption - INFO - Audit log initialized: logs/audit_log.json
+2026-01-17 20:38:14,581 - pipeline - INFO - Security modules initialized
+2026-01-17 20:39:04,871 - pipeline - INFO - Initializing EMR Digitization Pipeline...
+2026-01-17 20:39:04,871 - src.ocr.ocr_wrapper - INFO - Initialized pytesseract OCR wrapper (Tesseract-OCR engine)
+2026-01-17 20:39:04,871 - src.ocr.ocr_wrapper - INFO - Note: Requires Tesseract-OCR to be installed on system
+2026-01-17 20:39:04,871 - pipeline - INFO - OCR model initialized
+2026-01-17 20:39:04,871 - src.post_ocr.text_correction - INFO - Medical dictionary loaded from config/medical_dictionary.json
+2026-01-17 20:39:04,871 - pipeline - INFO - Spell corrector initialized
+2026-01-17 20:39:04,872 - src.nlp.entity_extraction - INFO - Using device: cpu
+2026-01-17 20:39:05,720 - src.nlp.entity_extraction - WARNING - Could not load clinical NER model: DistilBERT-clinical-NER is not a local folder and is not a valid model identifier listed on 'https://huggingface.co/models'
+If this is a private repository, make sure to pass a token having permission to this repo either by logging in with `hf auth login` or by passing `token=<your_token>`. Using basic pattern matching.
+2026-01-17 20:39:05,720 - pipeline - INFO - NLP extractor initialized
+2026-01-17 20:39:05,720 - src.fhir.converter - INFO - Initialized FHIR Validator for R4
+2026-01-17 20:39:05,721 - src.fhir.converter - INFO - Initialized HL7 to FHIR Converter
+2026-01-17 20:39:05,721 - pipeline - INFO - FHIR converter initialized
+2026-01-17 20:39:05,722 - src.validation.human_validation - INFO - Human validator initialized. Output directory: validation_queue
+2026-01-17 20:39:05,722 - pipeline - INFO - Validation framework initialized
+2026-01-17 20:39:05,722 - src.security.encryption - INFO - Encryption initialized
+2026-01-17 20:39:05,722 - src.security.encryption - INFO - Access Control initialized
+2026-01-17 20:39:05,723 - src.security.encryption - INFO - Audit log initialized: logs/audit_log.json
+2026-01-17 20:39:05,723 - pipeline - INFO - Security modules initialized
+2026-01-17 20:39:05,723 - pipeline - INFO - Processing document: split_data/prescriptions/test/1.jpg (Type: prescriptions)
+2026-01-17 20:39:05,723 - pipeline - INFO - Stage 1: OCR extraction...
+2026-01-17 20:39:05,781 - src.ocr.ocr_wrapper - ERROR - OCR extraction error: tesseract is not installed or it's not in your PATH. See README file for more information.
