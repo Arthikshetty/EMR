@@ -1,150 +1,229 @@
-#!/usr/bin/env python3
 """
-Test Script - Verify OCR Model is Loaded Correctly
-Run this BEFORE running the full pipeline to check if your model works
+Test OCR Model - Generate predictions for test images
+Creates individual text files for each test image
 """
 
 import os
-import sys
 import json
 import torch
-from pathlib import Path
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+from PIL import Image
+import numpy as np
+from datetime import datetime
 
-print("=" * 70)
-print("🔍 EMR OCR MODEL TEST SCRIPT")
-print("=" * 70)
 
-# Test 1: Check if models folder exists
-print("\n[TEST 1] Checking models/ folder...")
-models_dir = Path("models")
-if models_dir.exists():
-    print(f"✅ models/ folder found at: {models_dir.absolute()}")
-else:
-    print(f"❌ models/ folder NOT found!")
-    print(f"   Expected at: {models_dir.absolute()}")
-    sys.exit(1)
-
-# Test 2: Check if model file exists
-print("\n[TEST 2] Looking for model file...")
-model_files = list(models_dir.glob("*.pt")) + list(models_dir.glob("*.h5")) + list(models_dir.glob("*.pb"))
-
-if model_files:
-    print(f"✅ Found {len(model_files)} model file(s):")
-    for f in model_files:
-        size_mb = f.stat().st_size / (1024 * 1024)
-        print(f"   - {f.name} ({size_mb:.1f} MB)")
-    model_path = model_files[0]
-else:
-    print(f"❌ No model files found in models/ folder!")
-    print(f"   Looking for: .pt (PyTorch), .h5 (TensorFlow), .pb (TensorFlow)")
-    print(f"   \n   💡 STEPS TO FIX:")
-    print(f"      1. Train model in Google Colab")
-    print(f"      2. Download from Google Drive")
-    print(f"      3. Copy to: {models_dir.absolute()}")
-    sys.exit(1)
-
-# Test 3: Try to load model
-print("\n[TEST 3] Attempting to load model...")
-try:
-    if model_path.suffix == ".pt":
-        print(f"   → Detected PyTorch format (.pt)")
-        model = torch.load(model_path, map_location='cpu')
-        print(f"✅ PyTorch model loaded successfully!")
-        print(f"   Model type: {type(model)}")
-        
-        # If it's a state_dict (recommended way)
-        if isinstance(model, dict):
-            print(f"   Keys in model: {list(model.keys())[:5]}... (showing first 5)")
-            print(f"✅ This is a state_dict (recommended format)")
-        else:
-            print(f"✅ This is a full model object")
+class OCRDataset(Dataset):
+    """Load dataset from split folders"""
     
-    elif model_path.suffix == ".h5":
-        print(f"   → Detected TensorFlow format (.h5)")
+    def __init__(self, data_path, doc_type, split='test'):
+        self.image_dir = f"{data_path}/{doc_type}/{split}"
+        self.samples = []
+        
+        if os.path.exists(self.image_dir):
+            for f in sorted(os.listdir(self.image_dir)):
+                if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    img_path = os.path.join(self.image_dir, f)
+                    txt_name = f.rsplit('.', 1)[0] + '.txt'
+                    txt_path = os.path.join(self.image_dir, txt_name)
+                    
+                    if os.path.exists(txt_path):
+                        with open(txt_path, 'r', encoding='utf-8') as file:
+                            text = file.read().strip()
+                        if text:
+                            self.samples.append((img_path, text, f))
+    
+    def __len__(self):
+        return len(self.samples)
+    
+    def __getitem__(self, idx):
+        img_path, text, filename = self.samples[idx]
+        
         try:
-            import tensorflow as tf
-            model = tf.keras.models.load_model(model_path)
-            print(f"✅ TensorFlow model loaded successfully!")
-            model.summary()
-        except ImportError:
-            print(f"⚠️  TensorFlow not installed, cannot fully test .h5 model")
-            print(f"   Run: pip install tensorflow")
-    else:
-        print(f"❌ Unknown model format: {model_path.suffix}")
-        
-except Exception as e:
-    print(f"❌ Failed to load model: {str(e)}")
-    print(f"\n💡 TROUBLESHOOTING:")
-    print(f"   - Verify model file is not corrupted")
-    print(f"   - Check if PyTorch/TensorFlow is installed: pip install torch")
-    print(f"   - Try downloading model again from Colab")
-    sys.exit(1)
-
-# Test 4: Check configuration
-print("\n[TEST 4] Checking configuration...")
-config_path = Path("config/config.yaml")
-if config_path.exists():
-    print(f"✅ Configuration file found: {config_path.absolute()}")
-    try:
-        import yaml
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-        
-        if 'ocr' in config:
-            ocr_config = config['ocr']
-            print(f"\n   OCR Configuration:")
-            for key, value in ocr_config.items():
-                print(f"      - {key}: {value}")
+            image = Image.open(img_path).convert('L')
+            image = image.resize((256, 64))
+            image = torch.FloatTensor(np.array(image)) / 255.0
             
-            # Check if model path in config matches actual model
-            config_model_path = ocr_config.get('model_path', 'NOT SET')
-            print(f"\n   ✅ Model path in config: {config_model_path}")
-            if Path(config_model_path).exists():
-                print(f"   ✅ Model path resolves to file!")
-            else:
-                print(f"   ⚠️  Model path doesn't match actual file location")
-                print(f"      Expected: {config_model_path}")
-                print(f"      Actual: {model_path}")
-        else:
-            print(f"⚠️  'ocr' section not found in config.yaml")
-    except Exception as e:
-        print(f"⚠️  Could not read config: {str(e)}")
-else:
-    print(f"⚠️  Configuration file not found at: {config_path.absolute()}")
+            # Convert text to class indices (0-255 ASCII)
+            text_indices = torch.tensor([min(ord(c), 255) for c in text[:100].ljust(100, ' ')])
+            
+            return image, text_indices, filename, text
+        except:
+            return None, None, None, None
 
-# Test 5: Check if pipeline can be imported
-print("\n[TEST 5] Checking if pipeline module can be imported...")
-try:
-    from src.pipeline import EMRDigitizationPipeline
-    print(f"✅ Pipeline module imported successfully!")
+
+class OCRModel(nn.Module):
+    """ResNet50-based OCR Model"""
     
-    # Try to initialize pipeline
-    try:
-        pipeline = EMRDigitizationPipeline(ocr_model_path=str(model_path))
-        print(f"✅ Pipeline initialized successfully!")
-        print(f"   Ready to process documents")
-    except Exception as e:
-        print(f"⚠️  Pipeline initialized but with warning: {str(e)}")
+    def __init__(self):
+        super(OCRModel, self).__init__()
         
-except ImportError as e:
-    print(f"⚠️  Could not import pipeline: {str(e)}")
-    print(f"   Make sure all packages are installed: pip install -r requirements.txt")
+        from torchvision import models
+        resnet50 = models.resnet50(pretrained=True)
+        resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        
+        self.backbone = nn.Sequential(*list(resnet50.children())[:-1])
+        
+        self.head = nn.Sequential(
+            nn.Linear(2048, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 256)
+        )
+    
+    def forward(self, x):
+        x = self.backbone(x)
+        x = x.view(x.size(0), -1)
+        x = self.head(x)
+        return x
 
-# Test 6: Summary
-print("\n" + "=" * 70)
-print("TEST SUMMARY")
-print("=" * 70)
-print(f"✅ Model location: {model_path.absolute()}")
-print(f"✅ Model size: {model_path.stat().st_size / (1024*1024):.1f} MB")
-print(f"✅ All checks passed! Ready to run pipeline.")
-print("\n" + "=" * 70)
-print("NEXT STEPS:")
-print("=" * 70)
-print(f"\n1. Run the pipeline with a test image:")
-print(f"   python run_pipeline.py --image test.jpg --output results/")
-print(f"\n2. Check results folder for output:")
-print(f"   - test_extracted.json (raw extraction)")
-print(f"   - test_fhir.json (hospital ready)")
-print(f"\n3. For batch processing:")
-print(f"   python run_pipeline.py --batch --image prescriptions/ --output fhir_out/")
-print(f"\n" + "=" * 70)
+
+def test_ocr_model(data_path, model_path, doc_type, output_dir):
+    """Test model and generate predictions for each test image"""
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    print(f"\n{'='*70}")
+    print(f"TESTING {doc_type.upper()} MODEL")
+    print(f"{'='*70}")
+    print(f"Device: {device}\n")
+    
+    # Load model
+    print(f"Loading model: {model_path}")
+    model = OCRModel().to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    print("✓ Model loaded\n")
+    
+    # Load test dataset
+    print(f"Loading test dataset...")
+    test_dataset = OCRDataset(data_path, doc_type, 'test')
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+    print(f"✓ Test samples: {len(test_dataset)}\n")
+    
+    # Create output directory for predictions
+    pred_dir = f"{output_dir}/{doc_type}_test_predictions"
+    os.makedirs(pred_dir, exist_ok=True)
+    
+    # Test and generate predictions
+    print(f"Generating predictions for test images...\n")
+    
+    all_results = []
+    correct_predictions = 0
+    
+    with torch.no_grad():
+        for batch_idx, (images, texts, filenames, actual_texts) in enumerate(test_loader):
+            if images is None:
+                continue
+            
+            images = images.unsqueeze(1).to(device)
+            texts = texts.to(device)
+            
+            outputs = model(images)
+            predictions = outputs.argmax(1).cpu().numpy()
+            
+            for pred_char, filename, actual_text in zip(predictions, filenames, actual_texts):
+                # Convert prediction to character
+                pred_char_ascii = chr(pred_char)
+                actual_char = actual_text[0] if actual_text else '?'
+                
+                # Check if prediction matches
+                is_correct = pred_char_ascii == actual_char
+                if is_correct:
+                    correct_predictions += 1
+                
+                # Save prediction to individual text file
+                pred_file = os.path.join(pred_dir, filename.rsplit('.', 1)[0] + '_prediction.txt')
+                with open(pred_file, 'w', encoding='utf-8') as f:
+                    f.write(pred_char_ascii)
+                
+                # Store result
+                all_results.append({
+                    'filename': filename,
+                    'predicted_character': pred_char_ascii,
+                    'actual_character': actual_char,
+                    'actual_text': actual_text,
+                    'is_correct': is_correct,
+                    'prediction_file': pred_file
+                })
+                
+                print(f"  {filename:30s} → Predicted: '{pred_char_ascii}' | Actual: '{actual_char}' {'✓' if is_correct else '✗'}")
+            
+            print(f"Batch {batch_idx + 1}/{len(test_loader)}\n")
+    
+    # Calculate accuracy
+    accuracy = (correct_predictions / len(all_results)) * 100 if all_results else 0
+    
+    # Save results summary
+    summary = {
+        'model_type': doc_type,
+        'timestamp': datetime.now().isoformat(),
+        'total_test_samples': len(all_results),
+        'correct_predictions': correct_predictions,
+        'accuracy': f"{accuracy:.2f}%",
+        'predictions_directory': pred_dir,
+        'model_path': model_path
+    }
+    
+    summary_file = f"{output_dir}/{doc_type}_test_summary.json"
+    with open(summary_file, 'w') as f:
+        json.dump(summary, f, indent=2)
+    
+    # Save detailed results
+    results_file = f"{output_dir}/{doc_type}_test_results.json"
+    with open(results_file, 'w') as f:
+        json.dump(all_results, f, indent=2)
+    
+    # Print summary
+    print("\n" + "="*70)
+    print(f"✓ TESTING COMPLETE FOR {doc_type.upper()}")
+    print("="*70)
+    print(f"\n📊 RESULTS:")
+    print(f"  Total Test Images: {len(all_results)}")
+    print(f"  Correct Predictions: {correct_predictions}")
+    print(f"  Accuracy: {accuracy:.2f}%")
+    print(f"\n📁 OUTPUT:")
+    print(f"  Predictions (TXT): {pred_dir}/")
+    print(f"  Summary (JSON): {summary_file}")
+    print(f"  Details (JSON): {results_file}\n")
+    
+    return summary, all_results
+
+
+if __name__ == "__main__":
+    try:
+        from google.colab import drive
+        data_path = "/content/drive/MyDrive/split_data"
+        model_dir = "/content/drive/MyDrive/ocr_models"
+        output_dir = "/content/drive/MyDrive/ocr_models"
+    except:
+        data_path = "split_data"
+        model_dir = "ocr_models"
+        output_dir = "ocr_models"
+    
+    print(f"\n{'='*70}")
+    print("OCR MODEL TESTING")
+    print(f"{'='*70}")
+    
+    # Test prescriptions model
+    prescr_model_path = f"{model_dir}/prescriptions_best_model.pt"
+    if os.path.exists(prescr_model_path):
+        test_ocr_model(data_path, prescr_model_path, 'prescriptions', output_dir)
+    else:
+        print(f"✗ Prescription model not found: {prescr_model_path}")
+    
+    # Test lab reports model
+    lab_model_path = f"{model_dir}/lab_reports_best_model.pt"
+    if os.path.exists(lab_model_path):
+        test_ocr_model(data_path, lab_model_path, 'lab_reports', output_dir)
+    else:
+        print(f"✗ Lab reports model not found: {lab_model_path}")
+    
+    print(f"\n{'='*70}")
+    print("✓ ALL TESTS COMPLETED!")
+    print(f"{'='*70}\n")
