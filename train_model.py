@@ -55,8 +55,12 @@ class OCRDataset(Dataset):
             image = image.resize((256, 64))
             image = torch.FloatTensor(np.array(image)) / 255.0
             
-            # Convert text to indices
-            text_indices = torch.tensor([self.char2idx.get(c, 0) for c in text[:500]])
+            # Convert text to indices and pad to fixed length
+            text_indices = [self.char2idx.get(c, 0) for c in text[:256]]
+            # Pad to 256 characters
+            while len(text_indices) < 256:
+                text_indices.append(0)
+            text_indices = torch.tensor(text_indices[:256])
             
             return image, text_indices, text
         except:
@@ -153,8 +157,9 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=8):
     print(f"Vocabulary size: {train_dataset.vocab_size}")
     print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)}\n")
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, drop_last=True)
+    # Use drop_last=False for validation to avoid empty loaders
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, drop_last=False)
     
     # Model
     model = FullTextOCRModel(train_dataset.vocab_size).to(device)
@@ -175,9 +180,11 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=8):
         # Train
         model.train()
         train_loss = 0
+        train_batches = 0
         
-        for batch_idx, (images, texts, _) in enumerate(train_loader):
-            if images is None:
+        for batch_idx, batch in enumerate(train_loader):
+            images, texts, _ = batch
+            if images is None or images.shape[0] == 0:
                 continue
             
             images = images.unsqueeze(1).to(device)
@@ -193,16 +200,22 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=8):
             optimizer.step()
             
             train_loss += loss.item()
+            train_batches += 1
         
-        avg_train_loss = train_loss / len(train_loader)
+        if train_batches == 0:
+            print(f"Warning: No valid training batches in epoch {epoch+1}")
+            continue
+        
+        avg_train_loss = train_loss / train_batches
         
         # Validate
         model.eval()
         val_loss = 0
+        val_batches = 0
         
         with torch.no_grad():
             for images, texts, _ in val_loader:
-                if images is None:
+                if images is None or images.shape[0] == 0:
                     continue
                 
                 images = images.unsqueeze(1).to(device)
@@ -211,8 +224,13 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=8):
                 outputs = model(images, texts)
                 loss = criterion(outputs.reshape(-1, train_dataset.vocab_size), texts.reshape(-1))
                 val_loss += loss.item()
+                val_batches += 1
         
-        avg_val_loss = val_loss / len(val_loader)
+        if val_batches == 0:
+            print(f"Warning: No valid validation batches in epoch {epoch+1}")
+            avg_val_loss = best_val_loss
+        else:
+            avg_val_loss = val_loss / val_batches
         
         history['train_loss'].append(avg_train_loss)
         history['val_loss'].append(avg_val_loss)
@@ -258,9 +276,11 @@ def train_ocr_model(data_path, doc_type, output_dir, epochs=20, batch_size=8):
 if __name__ == "__main__":
     try:
         from google.colab import drive
-        data_path = "/content/drive/MyDrive/split_data"
-        output_dir = "/content/drive/MyDrive/ocr_models"
-    except:
+        # In Colab, data is directly accessible
+        data_path = "split_data"
+        output_dir = "ocr_models"
+    except ImportError:
+        # Local machine
         data_path = "split_data"
         output_dir = "ocr_models"
     

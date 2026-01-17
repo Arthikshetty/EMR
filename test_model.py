@@ -53,7 +53,12 @@ class OCRDataset(Dataset):
             image = image.resize((256, 64))
             image = torch.FloatTensor(np.array(image)) / 255.0
             
-            text_indices = torch.tensor([self.char2idx.get(c, 0) for c in text[:500]])
+            # Convert text to indices and pad to fixed length
+            text_indices = [self.char2idx.get(c, 0) for c in text[:256]]
+            # Pad to 256 characters
+            while len(text_indices) < 256:
+                text_indices.append(0)
+            text_indices = torch.tensor(text_indices[:256])
             
             return image, text_indices, text, filename
         except:
@@ -126,7 +131,7 @@ def test_ocr_model(data_path, model_path, vocab_path, doc_type, output_dir):
     
     # Load dataset and vocabulary
     test_dataset = OCRDataset(data_path, doc_type, 'test')
-    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, drop_last=False)
     
     # Load vocabulary
     with open(vocab_path, 'r') as f:
@@ -151,8 +156,9 @@ def test_ocr_model(data_path, model_path, vocab_path, doc_type, output_dir):
     all_results = []
     
     with torch.no_grad():
-        for batch_idx, (images, texts, actual_texts, filenames) in enumerate(test_loader):
-            if images is None:
+        for batch_idx, batch in enumerate(test_loader):
+            images, texts, actual_texts, filenames = batch
+            if images is None or images.shape[0] == 0:
                 continue
             
             images = images.unsqueeze(1).to(device)
@@ -234,13 +240,17 @@ def test_ocr_model(data_path, model_path, vocab_path, doc_type, output_dir):
 if __name__ == "__main__":
     try:
         from google.colab import drive
-        data_path = "/content/drive/MyDrive/split_data"
-        model_dir = "/content/drive/MyDrive/ocr_models"
-        output_dir = "/content/drive/MyDrive/ocr_models"
-    except:
+        # In Colab, data is directly accessible
         data_path = "split_data"
         model_dir = "ocr_models"
         output_dir = "ocr_models"
+    except ImportError:
+        # Local machine
+        data_path = "split_data"
+        model_dir = "ocr_models"
+        output_dir = "ocr_models"
+    
+    os.makedirs(output_dir, exist_ok=True)
     
     print(f"\n{'='*70}")
     print("FULL-TEXT OCR MODEL TESTING")
