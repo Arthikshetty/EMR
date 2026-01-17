@@ -1,0 +1,54 @@
+{
+  "bundle": {
+    "resourceType": "Bundle",
+    "id": "166b19f8-b6c4-417d-a168-a4476d667b5e",
+    "meta": {
+      "versionId": "1",
+      "lastUpdated": "2026-01-17T14:24:26.398320Z"
+    },
+    "type": "transaction",
+    "entry": [
+      {
+        "fullUrl": "http://emr.local/fhir/Patient/84e7d98f",
+        "resource": {
+          "resourceType": "Patient",
+          "id": "84e7d98f",
+          "meta": {
+            "versionId": "1",
+            "lastUpdated": "2026-01-17T14:24:26.397728Z"
+          },
+          "identifier": [
+            {
+              "use": "usual",
+              "system": "http://emr.local/fhir/identifier/mrn",
+              "value": "JS555999"
+            }
+          ],
+          "name": [
+            {
+              "use": "official",
+              "text": "Unknown Patient"
+            }
+          ],
+          "gender": "male",
+          "birthDate": null
+        },
+        "request": {
+          "method": "PUT",
+          "url": "Patient/84e7d98f"
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "document_id": "1",
+    "document_type": "prescriptions",
+    "source_file": "1.jpg",
+    "conversion_timestamp": "2026-01-17T14:24:26.402142",
+    "ocr_confidence": 0.75,
+    "entities_extracted": 1,
+    "phi_fields_detected": 1,
+    "resources_in_bundle": 1,
+    "validation": "PASSED"
+  }
+}

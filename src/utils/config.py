@@ -22,13 +22,29 @@ class ConfigManager:
     
     def load_config(self):
         """Load YAML configuration file"""
-        config_path = Path(__file__).parent / "config.yaml"
-        try:
-            with open(config_path, 'r') as f:
-                self._config = yaml.safe_load(f)
-            logger.info(f"Configuration loaded from {config_path}")
-        except FileNotFoundError:
-            logger.warning(f"Config file not found at {config_path}. Using defaults.")
+        # Try multiple paths
+        possible_paths = [
+            Path(__file__).parent.parent.parent / "config" / "config.yaml",  # Root/config/
+            Path(__file__).parent / "config.yaml",  # src/utils/
+            Path.cwd() / "config" / "config.yaml",  # Current working directory
+        ]
+        
+        config_path = None
+        for path in possible_paths:
+            if path.exists():
+                config_path = path
+                break
+        
+        if config_path:
+            try:
+                with open(config_path, 'r') as f:
+                    self._config = yaml.safe_load(f)
+                logger.info(f"Configuration loaded from {config_path}")
+            except Exception as e:
+                logger.error(f"Failed to load config: {e}")
+                self._config = {}
+        else:
+            logger.warning(f"Config file not found in any of: {possible_paths}. Using defaults.")
             self._config = {}
     
     def get(self, key: str, default: Any = None) -> Any:

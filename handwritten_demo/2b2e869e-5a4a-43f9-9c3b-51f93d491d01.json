@@ -1,0 +1,24 @@
+{
+  "id": "2b2e869e-5a4a-43f9-9c3b-51f93d491d01",
+  "document_id": "lab_reports_demo",
+  "extracted_data": {
+    "demographics": {
+      "patient_id": "RJ555888",
+      "dob": "03/22/1957",
+      "gender": "M",
+      "age": "68"
+    },
+    "vitals": {},
+    "lab_values": {
+      "glucose": "145"
+    }
+  },
+  "original_text": "\nLABORATORY RESULTS REPORT\n\nPatient: Robert Johnson\nAge: 68\nMRN: RJ555888\nDOB: 03/22/1957\nGender: Male\n\nTest Date: 01/14/2026\n\nCHEMISTRY PANEL:\nGlucose: 145 mg/dL (Reference: 70-100)\nBUN: 22 mg/dL (Reference: 7-20)\nCreatinine: 1.2 mg/dL (Reference: 0.7-1.3)\nSodium: 138 mEq/L (Reference: 135-145)\nPotassium: 4.1 mEq/L (Reference: 3.5-5.0)\n\nLIPID PANEL:\nTotal Cholesterol: 215 mg/dL (Reference: <200)\nHDL: 38 mg/dL (Reference: >40)\nLDL: 145 mg/dL (Reference: <100)\nTriglycerides: 180 mg/dL (Reference: <150)\n\nLab Director: Dr. Sarah Chen, MD\n",
+  "status": "pending",
+  "clinician_notes": "",
+  "corrections": {},
+  "confidence_score": 0.85,
+  "created_at": "2026-01-17T14:22:38.739268",
+  "reviewer_id": null,
+  "high_risk_fields": []
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "document_path": "split_data\\prescriptions\\test\\1.jpg",
+    "document_type": "prescriptions",
+    "timestamp": "2026-01-17T14:14:56.958481",
+    "pipeline_stages": {},
+    "success": false,
+    "errors": [
+      "OCR failed to extract text"
+    ]
+  },
+  {
+    "document_path": "split_data\\prescriptions\\test\\117.jpg",
+    "document_type": "prescriptions",
+    "timestamp": "2026-01-17T14:14:56.977521",
+    "pipeline_stages": {},
+    "success": false,
+    "errors": [
+      "OCR failed to extract text"
+    ]
+  },
+  {
+    "document_path": "split_data\\prescriptions\\test\\121.jpg",
+    "document_type": "prescriptions",
+    "timestamp": "2026-01-17T14:14:56.985135",
+    "pipeline_stages": {},
+    "success": false,
+    "errors": [
+      "OCR failed to extract text"
+    ]
+  }
+]

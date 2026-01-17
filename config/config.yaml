@@ -4,10 +4,14 @@ project:
   env: "development"
 
 ocr:
-  model_path: "models/ocr_model"
-  confidence_threshold: 0.7
-  max_image_size: [2048, 2048]
+  model_type: "pytesseract"
+  model_path: "ocr_models"  # Not used with pytesseract, kept for compatibility
+  engine: "tesseract-ocr"
+  confidence_threshold: 0.5
+  max_image_size: [3000, 3000]
   dpi: 300
+  language: "eng"
+  notes: "Using pytesseract (Tesseract-OCR engine). Install Tesseract-OCR on your system."
 
 post_ocr:
   spell_correction: true

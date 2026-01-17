@@ -1,0 +1,2 @@
+{"timestamp": "2026-01-17T14:21:53.201028Z", "user_id": "demo_user", "action": "process_handwritten", "resource_id": "prescriptions_demo", "resource_type": "prescriptions", "details": {"ocr_confidence": 0.85, "entities": 4}, "ip_address": "127.0.0.1", "status": "success"}
+{"timestamp": "2026-01-17T14:22:38.745946Z", "user_id": "demo_user", "action": "process_handwritten", "resource_id": "lab_reports_demo", "resource_type": "lab_reports", "details": {"ocr_confidence": 0.85, "entities": 1}, "ip_address": "127.0.0.1", "status": "success"}

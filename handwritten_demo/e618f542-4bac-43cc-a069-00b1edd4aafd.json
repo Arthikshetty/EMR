@@ -1,0 +1,22 @@
+{
+  "id": "e618f542-4bac-43cc-a069-00b1edd4aafd",
+  "document_id": "prescriptions_demo",
+  "extracted_data": {
+    "demographics": {
+      "patient_id": "MG987654321",
+      "dob": "05/12/1971",
+      "gender": "F",
+      "age": "52"
+    },
+    "vitals": {},
+    "lab_values": {}
+  },
+  "original_text": "\nPatient: Maria Garcia\nAge: 52\nMRN: MG987654321\nDOB: 05/12/1971\nGender: Female\n\nRx Date: 01/15/2026\n\nMedication: Lisinopril\nDose: 10mg\nForm: Tablet\nQty: 30\nSig: One tablet daily\nRefills: 3\n\nMedication: Atorvastatin\nDose: 20mg\nForm: Tablet\nQty: 30\nSig: One tablet at bedtime\nRefills: 6\n\nDiagnosis: Hypertension, Type 2 Diabetes\nPrescriber: Dr. James Wilson, MD\nLicense: MD456789\n",
+  "status": "pending",
+  "clinician_notes": "",
+  "corrections": {},
+  "confidence_score": 0.85,
+  "created_at": "2026-01-17T14:21:53.195179",
+  "reviewer_id": null,
+  "high_risk_fields": []
+}

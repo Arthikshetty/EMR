@@ -1,0 +1,16 @@
+{
+  "id": "4a4471f6-a86e-40da-8f51-99853e912263",
+  "document_id": "doc_001",
+  "extracted_data": {
+    "patient_name": "John Doe",
+    "diagnosis": "Diabetes"
+  },
+  "original_text": "Patient presents with Type 2 Diabetes...",
+  "status": "pending",
+  "clinician_notes": "",
+  "corrections": {},
+  "confidence_score": 0.65,
+  "created_at": "2026-01-17T14:09:44.402563",
+  "reviewer_id": null,
+  "high_risk_fields": []
+}

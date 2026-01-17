@@ -1,10 +1,22 @@
 import logging
 import json
-from typing import Dict, List, Tuple
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 from uuid import uuid4
+from pathlib import Path
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+class ValidationStatus(Enum):
+    """Validation workflow status"""
+    PENDING = "pending"
+    REVIEWING = "reviewing"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    NEEDS_REVISION = "needs_revision"
+
 
 class ValidationRequest:
     """Represent a single validation task"""
@@ -15,38 +27,56 @@ class ValidationRequest:
         self.original_text = original_text
         self.document_id = document_id
         self.created_at = datetime.utcnow()
-        self.status = 'pending'  # pending, approved, rejected, corrected
+        self.status = ValidationStatus.PENDING
         self.clinician_notes = ""
         self.corrections = {}
         self.confidence_score = 0.0
+        self.reviewer_id = None
+        self.high_risk_fields = []
     
     def to_dict(self) -> Dict:
         """Convert to dictionary"""
+        status_value = self.status.value if isinstance(self.status, ValidationStatus) else self.status
         return {
             'id': self.id,
             'document_id': self.document_id,
             'extracted_data': self.extracted_data,
             'original_text': self.original_text,
-            'status': self.status,
+            'status': status_value,
             'clinician_notes': self.clinician_notes,
             'corrections': self.corrections,
             'confidence_score': self.confidence_score,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'reviewer_id': self.reviewer_id,
+            'high_risk_fields': self.high_risk_fields
         }
 
 
 class HumanInLoopValidator:
     """Manage human validation workflows for high-risk medical data"""
     
-    def __init__(self):
+    def __init__(self, output_dir: str = "validation_queue"):
         self.validation_queue = []
         self.completed_validations = []
         self.correction_history = []
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(exist_ok=True, parents=True)
+        logger.info(f"Human validator initialized. Output directory: {output_dir}")
     
     def add_to_queue(self, validation_request: ValidationRequest):
         """Add extraction to validation queue"""
         self.validation_queue.append(validation_request)
+        self._save_request_to_file(validation_request)
         logger.info(f"Added validation request {validation_request.id} to queue")
+    
+    def _save_request_to_file(self, validation_request: ValidationRequest):
+        """Save validation request to JSON file"""
+        try:
+            filepath = self.output_dir / f"{validation_request.id}.json"
+            with open(filepath, 'w') as f:
+                json.dump(validation_request.to_dict(), f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save validation request: {e}")
     
     def prioritize_by_confidence(self, threshold: float = 0.7):
         """Sort queue by confidence score - highest priority for low confidence"""

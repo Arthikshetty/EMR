@@ -1,0 +1,2 @@
+{"timestamp": "2026-01-17T14:09:44.401627Z", "user_id": "user123", "action": "read_document", "resource_id": "doc_456", "resource_type": "Patient", "details": {}, "ip_address": "127.0.0.1", "status": "success"}
+{"timestamp": "2026-01-17T14:12:57.014607Z", "user_id": "user123", "action": "read_document", "resource_id": "doc_456", "resource_type": "Patient", "details": {}, "ip_address": "127.0.0.1", "status": "success"}

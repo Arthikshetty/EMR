@@ -1,72 +1,42 @@
 import logging
 import os
 import json
+import re
 from typing import Dict, Any, List, Tuple
 from pathlib import Path
 import numpy as np
 from PIL import Image
 
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    PYTESSERACT_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("pytesseract not installed. Install with: pip install pytesseract")
+
 logger = logging.getLogger(__name__)
 
 class OCRModelWrapper:
-    """Wrapper for trained OCR model"""
+    """Wrapper for Tesseract OCR engine using pytesseract"""
     
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str = None):
         """
-        Initialize OCR model wrapper
+        Initialize OCR wrapper using pytesseract (Tesseract-OCR engine)
         
         Args:
-            model_path: Path to trained OCR model
+            model_path: Optional path (not used with pytesseract, but kept for compatibility)
         """
         self.model_path = model_path
         self.model = None
-        self.processor = None
-        self._load_model()
-    
-    def _load_model(self):
-        """Load the trained OCR model"""
-        try:
-            # Depending on your OCR model type (TensorFlow, PyTorch, etc.)
-            # Adjust this accordingly
-            
-            if self.model_path.endswith('.pt'):
-                # PyTorch model
-                import torch
-                self.model = torch.load(self.model_path, map_location='cpu')
-                self.model.eval()
-                logger.info(f"Loaded PyTorch OCR model from {self.model_path}")
-            
-            elif self.model_path.endswith('.h5') or self.model_path.endswith('.pb'):
-                # TensorFlow model
-                import tensorflow as tf
-                self.model = tf.keras.models.load_model(self.model_path)
-                logger.info(f"Loaded TensorFlow OCR model from {self.model_path}")
-            
-            elif self.model_path.endswith('.pkl'):
-                # Pickle model
-                import pickle
-                with open(self.model_path, 'rb') as f:
-                    self.model = pickle.load(f)
-                logger.info(f"Loaded pickled OCR model from {self.model_path}")
-            
-            elif os.path.isdir(self.model_path):
-                # ONNX or other directory-based models
-                logger.info(f"OCR model directory found at {self.model_path}")
-                # Load ONNX or other formats
-                import onnxruntime as rt
-                model_files = list(Path(self.model_path).glob('*.onnx'))
-                if model_files:
-                    self.model = rt.InferenceSession(str(model_files[0]))
-                    logger.info(f"Loaded ONNX OCR model")
-            
-            else:
-                logger.warning(f"Unknown model format: {self.model_path}")
         
-        except Exception as e:
-            logger.error(f"Failed to load OCR model: {e}")
-            raise
+        if not PYTESSERACT_AVAILABLE:
+            raise ImportError("pytesseract is required. Install with: pip install pytesseract")
+        
+        logger.info("Initialized pytesseract OCR wrapper (Tesseract-OCR engine)")
+        logger.info("Note: Requires Tesseract-OCR to be installed on system")
     
-    def preprocess_image(self, image_path: str) -> np.ndarray:
+    def preprocess_image(self, image_path: str) -> Image.Image:
         """Preprocess image for OCR"""
         try:
             image = Image.open(image_path)
@@ -75,17 +45,19 @@ class OCRModelWrapper:
             if image.mode != 'RGB':
                 image = image.convert('RGB')
             
-            # Resize if necessary
-            max_size = 2048
-            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            # Resize if too small (for better OCR)
+            if image.width < 300 or image.height < 100:
+                scale_factor = max(300 / image.width, 100 / image.height)
+                new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
+                image = image.resize(new_size, Image.Resampling.LANCZOS)
             
-            # Convert to numpy array
-            img_array = np.array(image)
+            # Downsize if too large
+            max_size = 3000
+            if image.width > max_size or image.height > max_size:
+                image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             
-            # Normalize
-            img_array = img_array.astype(np.float32) / 255.0
-            
-            return img_array
+            logger.debug(f"Image preprocessed: {image.size}")
+            return image
         
         except Exception as e:
             logger.error(f"Image preprocessing failed: {e}")
@@ -93,7 +65,7 @@ class OCRModelWrapper:
     
     def extract_text(self, image_path: str) -> Dict[str, Any]:
         """
-        Extract text from image using OCR model
+        Extract text from image using Tesseract OCR
         
         Args:
             image_path: Path to medical document image
@@ -101,97 +73,123 @@ class OCRModelWrapper:
         Returns:
             Dictionary with extracted text and confidence scores
         """
-        if not self.model:
-            logger.error("OCR model not loaded")
-            return {'text': '', 'confidence': 0.0, 'error': 'Model not loaded'}
-        
         try:
             # Preprocess image
-            img_array = self.preprocess_image(image_path)
-            if img_array is None:
+            image = self.preprocess_image(image_path)
+            if image is None:
                 return {'text': '', 'confidence': 0.0, 'error': 'Image preprocessing failed'}
             
-            # Run inference
-            if hasattr(self.model, 'predict'):
-                # Keras/TensorFlow
-                predictions = self.model.predict(np.expand_dims(img_array, axis=0))
+            # Extract text using pytesseract
+            extracted_text = pytesseract.image_to_string(image, lang='eng')
             
-            elif hasattr(self.model, 'run'):
-                # ONNX
-                input_name = self.model.get_inputs()[0].name
-                predictions = self.model.run(None, {input_name: np.expand_dims(img_array, axis=0)})
+            # Get detailed information
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
             
-            elif hasattr(self.model, '__call__'):
-                # PyTorch
-                import torch
-                with torch.no_grad():
-                    img_tensor = torch.from_numpy(img_array).unsqueeze(0)
-                    predictions = self.model(img_tensor)
+            # Calculate confidence from Tesseract data
+            confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
+            avg_confidence = np.mean(confidences) / 100.0 if confidences else 0.5
             
-            else:
-                logger.error("Unknown model type")
-                return {'text': '', 'confidence': 0.0, 'error': 'Unknown model type'}
-            
-            # Parse predictions (adjust based on your model output format)
-            extracted_text = self._parse_predictions(predictions)
-            confidence = self._calculate_confidence(predictions)
+            # Clean up text
+            cleaned_text = self._clean_ocr_text(extracted_text)
             
             return {
-                'text': extracted_text,
-                'confidence': confidence,
+                'text': cleaned_text,
+                'confidence': float(avg_confidence),
                 'image_path': image_path,
-                'raw_predictions': predictions
+                'raw_text': extracted_text,
+                'word_count': len(cleaned_text.split()),
+                'character_count': len(cleaned_text)
             }
         
         except Exception as e:
             logger.error(f"OCR extraction error: {e}")
             return {'text': '', 'confidence': 0.0, 'error': str(e)}
     
-    def _parse_predictions(self, predictions) -> str:
-        """Parse model predictions into text"""
-        # This depends on your specific OCR model output format
-        # Example implementations below:
+    def _clean_ocr_text(self, text: str) -> str:
+        """Clean and normalize OCR text"""
+        # Remove extra whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
         
-        if isinstance(predictions, np.ndarray):
-            if predictions.ndim == 1:
-                # If predictions are class indices
-                return str(predictions.tolist())
-            elif predictions.ndim == 2:
-                # If predictions are confidence scores per character
-                return self._decode_character_predictions(predictions)
+        # Fix common OCR errors
+        replacements = {
+            'l0': 'lo',  # l zero to lo
+            'O0': 'O',   # O zero
+            '1l': 'il',  # 1 l to il
+            '5S': 'S',   # 5 S to S
+        }
         
-        elif isinstance(predictions, list):
-            if predictions and isinstance(predictions[0], np.ndarray):
-                return self._decode_character_predictions(predictions[0])
+        for error, correct in replacements.items():
+            text = text.replace(error, correct)
         
-        elif isinstance(predictions, str):
-            return predictions
+        return text
+    
+    def extract_text_with_boxes(self, image_path: str) -> Dict[str, Any]:
+        """
+        Extract text with bounding boxes and detailed information
         
+        Args:
+            image_path: Path to medical document image
+            
+        Returns:
+            Dictionary with text, boxes, and metadata
+        """
+        try:
+            image = self.preprocess_image(image_path)
+            if image is None:
+                return {'error': 'Image preprocessing failed'}
+            
+            # Get detailed box data
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            
+            boxes = []
+            for i in range(len(data['text'])):
+                if int(data['conf'][i]) > 0:
+                    boxes.append({
+                        'text': data['text'][i],
+                        'confidence': int(data['conf'][i]) / 100.0,
+                        'bbox': {
+                            'left': int(data['left'][i]),
+                            'top': int(data['top'][i]),
+                            'width': int(data['width'][i]),
+                            'height': int(data['height'][i])
+                        },
+                        'block_num': int(data['block_num'][i]),
+                        'page_num': int(data['page_num'][i]),
+                        'par_num': int(data['par_num'][i]),
+                        'line_num': int(data['line_num'][i]),
+                        'word_num': int(data['word_num'][i])
+                    })
+            
+            # Extract full text
+            full_text = ' '.join([box['text'] for box in boxes if box['text'].strip()])
+            
+            return {
+                'text': full_text,
+                'boxes': boxes,
+                'confidence': np.mean([b['confidence'] for b in boxes]) if boxes else 0.0,
+                'word_count': len(boxes)
+            }
+        
+        except Exception as e:
+            logger.error(f"Extract text with boxes failed: {e}")
+            return {'error': str(e)}
+    
+    @staticmethod
+    def _parse_predictions(predictions) -> str:
+        """Legacy method for compatibility"""
+        # Not used with pytesseract, but kept for compatibility
         return str(predictions)
     
     @staticmethod
     def _decode_character_predictions(char_predictions) -> str:
-        """Decode character-level predictions to text"""
-        # Assuming character predictions are confidence scores
-        if isinstance(char_predictions, list):
-            char_predictions = np.array(char_predictions)
-        
-        # Get character indices with highest confidence
-        indices = np.argmax(char_predictions, axis=-1) if char_predictions.ndim > 1 else char_predictions
-        
-        # Map indices to characters (adjust based on your character set)
-        charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,;:!?\' ()-'
-        text = ''.join([charset[i] if i < len(charset) else '' for i in indices])
-        return text
+        """Legacy method for compatibility"""
+        # Not used with pytesseract, but kept for compatibility
+        return str(char_predictions)
     
     @staticmethod
     def _calculate_confidence(predictions) -> float:
-        """Calculate overall confidence score"""
-        if isinstance(predictions, np.ndarray):
-            if predictions.ndim == 1:
-                return float(np.max(predictions))
-            elif predictions.ndim == 2:
-                return float(np.mean(np.max(predictions, axis=-1)))
+        """Legacy method for compatibility"""
+        # Not used with pytesseract, but kept for compatibility
         return 0.5
     
     def batch_extract_text(self, image_paths: List[str]) -> List[Dict[str, Any]]:
